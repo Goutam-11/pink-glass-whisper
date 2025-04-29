@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WebSocketMessageEvent, Message, ToolCall } from '../types';
 import { toast } from '@/components/ui/sonner';
+import { v4 as uuidv4 } from 'uuid';
 
 export const useWebSocket = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -29,55 +30,88 @@ export const useWebSocket = () => {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as WebSocketMessageEvent;
+          console.log('Received WebSocket message:', data);
           
           switch (data.type) {
             case 'message':
-              if (data.data.role === 'ai') {
+              // Handle AI message
+              if (data.content) {
+                const messageId = `ai-${Date.now()}`;
+                
                 setMessages(prevMessages => {
-                  // Check if we're continuing an existing message stream
-                  const existingIndex = prevMessages.findIndex(
-                    m => m.id === data.data.id
-                  );
-                  
-                  if (existingIndex >= 0) {
+                  // Check if we already have a message from the AI that we should update
+                  const lastMessage = prevMessages[prevMessages.length - 1];
+                  if (lastMessage && lastMessage.role === 'ai') {
+                    // Update the existing message
                     const updatedMessages = [...prevMessages];
-                    updatedMessages[existingIndex] = {
-                      ...updatedMessages[existingIndex],
-                      content: data.data.content,
+                    updatedMessages[prevMessages.length - 1] = {
+                      ...lastMessage,
+                      content: data.content
                     };
                     return updatedMessages;
                   } else {
-                    // This is a new message
-                    return [...prevMessages, data.data];
+                    // Add a new AI message
+                    return [...prevMessages, {
+                      id: messageId,
+                      content: data.content,
+                      role: 'ai',
+                      timestamp: Date.now()
+                    }];
                   }
                 });
+                
                 setIsLoading(false);
-              } else {
-                setMessages(prev => [...prev, data.data]);
               }
               break;
               
-            case 'tool_call':
-              setMessages(prevMessages => {
-                const lastMessage = prevMessages[prevMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'ai') {
-                  const updatedMessage = {
-                    ...lastMessage,
-                    toolCalls: [...(lastMessage.toolCalls || []), data.data]
+            case 'tools':
+              // Parse tool call from content
+              if (data.content) {
+                try {
+                  const toolData = JSON.parse(data.content);
+                  
+                  // Create a tool call object
+                  const toolCall: ToolCall = {
+                    id: toolData.id || uuidv4(),
+                    name: toolData.name || "unknown_tool",
+                    parameters: Object.entries(toolData.parameters || {}).map(([name, value]) => ({
+                      name,
+                      value: typeof value === 'string' ? value : JSON.stringify(value)
+                    }))
                   };
-                  return [...prevMessages.slice(0, -1), updatedMessage];
+                  
+                  // Add the tool call to the last AI message or create a new one
+                  setMessages(prevMessages => {
+                    const lastMessage = prevMessages[prevMessages.length - 1];
+                    if (lastMessage && lastMessage.role === 'ai') {
+                      // Update the existing message with the tool call
+                      const updatedMessage = {
+                        ...lastMessage,
+                        toolCalls: [...(lastMessage.toolCalls || []), toolCall]
+                      };
+                      return [...prevMessages.slice(0, -1), updatedMessage];
+                    } else {
+                      // Create a new AI message with the tool call
+                      return [...prevMessages, {
+                        id: `ai-${Date.now()}`,
+                        content: '',
+                        role: 'ai',
+                        timestamp: Date.now(),
+                        toolCalls: [toolCall]
+                      }];
+                    }
+                  });
+                } catch (error) {
+                  console.error('Error parsing tool data:', error, data.content);
+                  toast.error('Error processing tool response');
                 }
-                return prevMessages;
-              });
+              }
               break;
               
             case 'error':
-              console.error('WebSocket error:', data.data);
-              toast.error(`Error: ${data.data.message || 'Unknown error'}`);
-              break;
-              
-            case 'connection':
-              console.log('Connection status:', data.data);
+              console.error('WebSocket error:', data);
+              toast.error(`Error: ${data.content || 'Unknown error'}`);
+              setIsLoading(false);
               break;
           }
         } catch (error) {
@@ -130,8 +164,11 @@ export const useWebSocket = () => {
     // Add user message to state
     setMessages(prev => [...prev, message]);
     
-    // Send message to WebSocket server
-    socketRef.current.send(JSON.stringify({ type: 'message', data: message }));
+    // Send message to WebSocket server in the format the server expects
+    socketRef.current.send(JSON.stringify({ 
+      content, 
+      sessionId: 'default-session' 
+    }));
     
     // Set loading state while waiting for response
     setIsLoading(true);

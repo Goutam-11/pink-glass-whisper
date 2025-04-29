@@ -21,6 +21,8 @@ export interface Message {
 }
 
 export interface WebSocketMessageEvent {
-  type: 'message' | 'tool_call' | 'error' | 'connection';
-  data: any;
+  type: 'message' | 'tools' | 'error' | 'connection';
+  content?: string;
+  timestamp?: string;
+  data?: any;
 }

@@ -31,8 +31,8 @@ const ToolCard: React.FC<ToolCardProps> = ({ toolCall }) => {
         expanded ? "max-h-96" : "max-h-0"
       )}>
         <div className="p-3 text-sm space-y-2">
-          {toolCall.parameters.map((param) => (
-            <div key={param.name} className="space-y-1">
+          {toolCall.parameters.map((param, index) => (
+            <div key={`${param.name}-${index}`} className="space-y-1">
               <div className="font-medium text-xs text-gray-600">{param.name}</div>
               <div className="font-mono text-xs bg-white/70 p-2 rounded-md break-all">
                 {param.value}
