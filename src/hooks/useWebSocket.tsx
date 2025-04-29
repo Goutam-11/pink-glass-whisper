@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WebSocketMessageEvent, Message, ToolCall } from '../types';
 import { toast } from '@/components/ui/sonner';
@@ -65,19 +64,36 @@ export const useWebSocket = () => {
               break;
               
             case 'tools':
-              // Parse tool call from content
+              // Parse tool call from content - handle both JSON and plain text
               if (data.content) {
                 try {
-                  const toolData = JSON.parse(data.content);
+                  // Try to parse as JSON first
+                  let toolData;
+                  try {
+                    toolData = JSON.parse(data.content);
+                  } catch (parseError) {
+                    // If parsing fails, it's likely a plain text response
+                    console.log('Received plain text tool response:', data.content);
+                    
+                    // Create a simple tool object for non-JSON responses
+                    toolData = {
+                      name: "tool_response",
+                      parameters: {
+                        message: data.content
+                      }
+                    };
+                  }
                   
                   // Create a tool call object
                   const toolCall: ToolCall = {
                     id: toolData.id || uuidv4(),
-                    name: toolData.name || "unknown_tool",
-                    parameters: Object.entries(toolData.parameters || {}).map(([name, value]) => ({
-                      name,
-                      value: typeof value === 'string' ? value : JSON.stringify(value)
-                    }))
+                    name: toolData.name || "tool_response",
+                    parameters: Array.isArray(toolData.parameters) 
+                      ? toolData.parameters 
+                      : Object.entries(toolData.parameters || {}).map(([name, value]) => ({
+                          name,
+                          value: typeof value === 'string' ? value : JSON.stringify(value)
+                        }))
                   };
                   
                   // Add the tool call to the last AI message or create a new one
@@ -102,7 +118,7 @@ export const useWebSocket = () => {
                     }
                   });
                 } catch (error) {
-                  console.error('Error parsing tool data:', error, data.content);
+                  console.error('Error processing tool data:', error, data.content);
                   toast.error('Error processing tool response');
                 }
               }
